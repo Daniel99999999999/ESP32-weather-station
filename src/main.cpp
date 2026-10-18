@@ -37,6 +37,7 @@ bool isNightMode = false;
 bool g_wifiFallbackDhcp = false;
 bool g_wifiUsingStaticIp = false;
 uint8_t g_wifiProfileIndex = 0xFF;
+bool g_networkReady = false;
 RuntimeWiFiConfig g_runtimeWiFiConfig = {};
 volatile bool g_otaInProgress = false;
 volatile uint8_t g_otaProgressPercent = 0;
@@ -171,8 +172,10 @@ const RectangleDef MENU_WIFI_PROFILE1 = {18, 298, 284, 30};
 const RectangleDef MENU_WIFI_HOME_NETWORKS_BUTTON = {18, 278, 88, 30};
 const RectangleDef MENU_WIFI_HOME_PASSWORD_BUTTON = {116, 278, 88, 30};
 const RectangleDef MENU_WIFI_HOME_IP_BUTTON = {214, 278, 88, 30};
+const RectangleDef MENU_WIFI_HOME_SAVE_BUTTON = {18, 326, 137, 34};
+const RectangleDef MENU_WIFI_HOME_CANCEL_BUTTON = {165, 326, 137, 34};
 const RectangleDef MENU_WIFI_MODE_TOGGLE = {108, 132, 126, 26};
-const RectangleDef MENU_WIFI_NETWORK_RESCAN_BUTTON = {230, 10, 78, 26};
+const RectangleDef MENU_WIFI_NETWORK_RESCAN_BUTTON = {214, 10, 94, 26};
 const RectangleDef MENU_WIFI_PASSWORD_SHOW_BUTTON = {18, 118, 88, 26};
 const RectangleDef MENU_WIFI_PASSWORD_CLEAR_BUTTON = {116, 118, 88, 26};
 const RectangleDef MENU_WIFI_PASSWORD_DONE_BUTTON = {214, 118, 88, 26};
@@ -375,8 +378,8 @@ void redrawMenuTouchGridRegion(int16_t x, int16_t y, int16_t w, int16_t h);
 bool isPointInMenuTouchGrid(uint16_t x, uint16_t y);
 void loadMenuDraftFromProfile(uint8_t profileIndex);
 void loadMenuDraftFromRuntimeConfig();
+void reloadMenuWifiDraftFromActiveConfig();
 void storeMenuDraftToRuntimeConfig();
-bool doesMenuDraftDifferFromRuntimeConfig();
 MenuWifiApplyResult applyMenuWifiDraftToRuntime();
 const char* getMenuWifiApplyErrorText(MenuWifiApplyResult result);
 void formatIpAddressToText(const IPAddress &ip, char *out, size_t outSize);
@@ -490,6 +493,7 @@ void initRuntimeState() {
   g_wifiFallbackDhcp = false;
   g_wifiUsingStaticIp = false;
   g_wifiProfileIndex = 0xFF;
+  g_networkReady = false;
   g_runtimeWiFiConfig = {};
   g_otaInProgress = false;
   g_otaProgressPercent = 0;
@@ -603,13 +607,32 @@ void startConnectivityServices() {
   initMenuDraftState();
 
   if (WiFi.status() == WL_CONNECTED) {
-    drawProgress("Uruchamiam OTA...", 45);
-    setupOTA();
+    drawProgress("Sprawdzam DNS...", 40);
+    IPAddress dnsProbeIp;
+    g_networkReady = WiFi.hostByName("api.openweathermap.org", dnsProbeIp) == 1;
 
-    drawProgress("Ustawiam zegarek...", 75);
-    syncTime();
+    if (g_networkReady) {
+      drawProgress("Uruchamiam OTA...", 55);
+      setupOTA();
+
+      drawProgress("Ustawiam zegarek...", 75);
+      syncTime();
+    } else {
+      log_w("WiFi polaczone, ale DNS/Internet jest niedostepny");
+      g_currentPage = PAGE_MENU;
+      g_menuScreen = MENU_WIFI;
+      g_menuWifiScreen = MENU_WIFI_HOME;
+      setMenuWifiStatus(u8"WiFi bez DNS/Internetu.");
+      invalidateMenuFull();
+    }
   } else {
+    g_networkReady = false;
     log_w("Brak WiFi, pomijam OTA/NTP");
+    g_currentPage = PAGE_MENU;
+    g_menuScreen = MENU_WIFI;
+    g_menuWifiScreen = MENU_WIFI_HOME;
+    setMenuWifiStatus(u8"Brak połączenia WiFi.");
+    invalidateMenuFull();
   }
 
   drawProgress("Zakończono", 100);
@@ -1658,6 +1681,37 @@ void loadMenuDraftFromRuntimeConfig() {
   formatIpAddressToText(g_menuDraft.dns, g_menuDraft.dnsText, sizeof(g_menuDraft.dnsText));
 }
 
+// Odtwarza tylko roboczą konfigurację Wi-Fi, bez zmiany pozostałych ustawień menu.
+void reloadMenuWifiDraftFromActiveConfig() {
+  if (isRuntimeWiFiConfigUsable()) {
+    loadMenuDraftFromRuntimeConfig();
+  } else {
+    const uint8_t profileIndex =
+      (g_wifiProfileIndex < WIFI_PROFILE_COUNT) ? g_wifiProfileIndex : 0;
+    loadMenuDraftFromProfile(profileIndex);
+  }
+
+  // Profil opisuje konfigurację żądaną, ale ekran główny Wi-Fi ma pokazywać
+  // konfigurację faktycznie używaną. Jest to szczególnie ważne po awaryjnym
+  // przejściu ze statycznego IP na DHCP w innej podsieci.
+  if (WiFi.status() == WL_CONNECTED) {
+    g_menuDraft.wifiUseDhcp = !g_wifiUsingStaticIp;
+    g_menuDraft.localIp = WiFi.localIP();
+    g_menuDraft.subnet = WiFi.subnetMask();
+    g_menuDraft.gateway = WiFi.gatewayIP();
+    g_menuDraft.dns = WiFi.dnsIP();
+    formatIpAddressToText(g_menuDraft.localIp, g_menuDraft.localIpText, sizeof(g_menuDraft.localIpText));
+    formatIpAddressToText(g_menuDraft.subnet, g_menuDraft.subnetText, sizeof(g_menuDraft.subnetText));
+    formatIpAddressToText(g_menuDraft.gateway, g_menuDraft.gatewayText, sizeof(g_menuDraft.gatewayText));
+    formatIpAddressToText(g_menuDraft.dns, g_menuDraft.dnsText, sizeof(g_menuDraft.dnsText));
+  }
+
+  g_menuWifiShowPassword = false;
+  g_menuWifiKeyboardUpper = false;
+  g_menuWifiPasswordInput[0] = '\0';
+  g_menuWifiPasswordEdited = false;
+}
+
 void storeMenuDraftToRuntimeConfig() {
   g_runtimeWiFiConfig = {};
   g_runtimeWiFiConfig.valid = g_menuDraft.wifiSsid[0] != '\0';
@@ -1668,19 +1722,6 @@ void storeMenuDraftToRuntimeConfig() {
   g_runtimeWiFiConfig.subnet = g_menuDraft.subnet;
   g_runtimeWiFiConfig.gateway = g_menuDraft.gateway;
   g_runtimeWiFiConfig.dns = g_menuDraft.dns;
-}
-
-bool doesMenuDraftDifferFromRuntimeConfig() {
-  if (!g_runtimeWiFiConfig.valid) {
-    return true;
-  }
-  return strcmp(g_menuDraft.wifiSsid, g_runtimeWiFiConfig.ssid) != 0 ||
-         strcmp(g_menuDraft.password, g_runtimeWiFiConfig.password) != 0 ||
-         g_menuDraft.wifiUseDhcp != !g_runtimeWiFiConfig.useStaticIp ||
-         g_menuDraft.localIp != g_runtimeWiFiConfig.localIp ||
-         g_menuDraft.subnet != g_runtimeWiFiConfig.subnet ||
-         g_menuDraft.gateway != g_runtimeWiFiConfig.gateway ||
-         g_menuDraft.dns != g_runtimeWiFiConfig.dns;
 }
 
 const char* getMenuWifiApplyErrorText(MenuWifiApplyResult result) {
@@ -1704,9 +1745,12 @@ const char* getMenuWifiApplyErrorText(MenuWifiApplyResult result) {
 MenuWifiApplyResult applyMenuWifiDraftToRuntime() {
   RuntimeWiFiConfig previousConfig = g_runtimeWiFiConfig;
   const bool hadPreviousConfig = isRuntimeWiFiConfigUsable();
+  const bool previousNetworkReady = g_networkReady;
 
   storeMenuDraftToRuntimeConfig();
   if (!isRuntimeWiFiConfigUsable()) {
+    g_runtimeWiFiConfig = previousConfig;
+    g_networkReady = previousNetworkReady;
     return MENU_WIFI_APPLY_EMPTY;
   }
 
@@ -1721,6 +1765,7 @@ MenuWifiApplyResult applyMenuWifiDraftToRuntime() {
     IPAddress dnsProbeIp;
     if (WiFi.status() == WL_CONNECTED && WiFi.hostByName("pool.ntp.org", dnsProbeIp) != 1) {
       log_w("[WIFI] DNS probe failed after connect");
+      g_networkReady = false;
       g_runtimeWiFiConfig = previousConfig;
       WiFi.disconnect(true, true);
       delay(200);
@@ -1735,6 +1780,7 @@ MenuWifiApplyResult applyMenuWifiDraftToRuntime() {
       }
       return MENU_WIFI_APPLY_DNS;
     }
+    g_networkReady = true;
     if (WiFi.status() == WL_CONNECTED) {
       setupOTA();
       syncTime();
@@ -1743,12 +1789,14 @@ MenuWifiApplyResult applyMenuWifiDraftToRuntime() {
   }
 
   log_w("[WIFI] runtime config failed, restoring previous connection");
+  g_networkReady = false;
   wl_status_t failedStatus = WiFi.status();
   g_runtimeWiFiConfig = previousConfig;
   WiFi.disconnect(true, true);
   delay(200);
   if (hadPreviousConfig && isRuntimeWiFiConfigUsable()) {
     if (connectUsingRuntimeConfig()) {
+      g_networkReady = previousNetworkReady;
       if (WiFi.status() == WL_CONNECTED) {
         setupOTA();
         syncTime();
@@ -1756,6 +1804,7 @@ MenuWifiApplyResult applyMenuWifiDraftToRuntime() {
     }
   } else {
     startWiFi();
+    g_networkReady = previousNetworkReady && WiFi.status() == WL_CONNECTED;
     if (WiFi.status() == WL_CONNECTED) {
       setupOTA();
       syncTime();
@@ -1819,12 +1868,7 @@ void populateMenuWifiSavedList() {
 }
 
 void initMenuDraftState() {
-  if (isRuntimeWiFiConfigUsable()) {
-    loadMenuDraftFromRuntimeConfig();
-  } else {
-    const uint8_t defaultProfile = (g_wifiProfileIndex < WIFI_PROFILE_COUNT) ? g_wifiProfileIndex : 0;
-    loadMenuDraftFromProfile(defaultProfile);
-  }
+  reloadMenuWifiDraftFromActiveConfig();
   g_menuDraft.showSeconds = false;
   g_menuDraft.showForecast = true;
   g_menuDraft.showSun = true;
@@ -2004,6 +2048,10 @@ void drawMenuWifiIpField(const RectangleDef &rect, const char *label, const char
 }
 
 void scanMenuWifiNetworks() {
+  // Domknij stan skanowania przed przygotowaniem komunikatu i listy. Dzięki
+  // temu UI nie może pozostawić żółtego napisu z poprzedniej fazy skanu.
+  g_menuWifiScanRequested = false;
+  g_menuWifiScanInProgress = false;
   g_menuWifiScanCount = 0;
   const int networkCount = WiFi.scanComplete();
   if (networkCount <= 0) {
@@ -2025,7 +2073,7 @@ void scanMenuWifiNetworks() {
   }
   g_menuWifiScanCount = cappedCount;
   char statusBuf[48];
-  snprintf(statusBuf, sizeof(statusBuf), "Znaleziono %u sieci", (unsigned)cappedCount);
+  snprintf(statusBuf, sizeof(statusBuf), "%u sieci. Wybierz z listy.", (unsigned)cappedCount);
   setMenuWifiStatus(statusBuf);
   WiFi.scanDelete();
 }
@@ -2559,10 +2607,11 @@ void renderMenuWifiOverview(bool redrawStatic) {
   }
 
   char wifiKey[128];
-  snprintf(wifiKey, sizeof(wifiKey), "%s|%s|%u|%u.%u.%u.%u|%d",
+  snprintf(wifiKey, sizeof(wifiKey), "%s|%s|%u|%u|%u.%u.%u.%u|%d",
            g_menuDraft.wifiSsid,
            g_menuWifiStatusText,
            (unsigned)g_menuDraft.wifiUseDhcp,
+           (unsigned)g_wifiFallbackDhcp,
            g_menuDraft.localIp[0], g_menuDraft.localIp[1], g_menuDraft.localIp[2], g_menuDraft.localIp[3],
            (int)g_menuWifiPressedCode);
   if (!redrawStatic && strcmp(wifiKey, g_lastMenuWifiKey) == 0) {
@@ -2574,6 +2623,8 @@ void renderMenuWifiOverview(bool redrawStatic) {
   drawMenuButton(MENU_WIFI_HOME_NETWORKS_BUTTON, "Sieci", COLOR_MENU, false, g_menuWifiPressedCode == 1);
   drawMenuButton(MENU_WIFI_HOME_PASSWORD_BUTTON, "Hasło", COLOR_GRAPH, false, g_menuWifiPressedCode == 2);
   drawMenuButton(MENU_WIFI_HOME_IP_BUTTON, "IP", COLOR_DEBUG, false, g_menuWifiPressedCode == 3);
+  drawMenuButton(MENU_WIFI_HOME_SAVE_BUTTON, "Zapisz", TFT_GREEN, false, g_menuWifiPressedCode == 6);
+  drawMenuButton(MENU_WIFI_HOME_CANCEL_BUTTON, "Anuluj", TFT_RED, false, g_menuWifiPressedCode == 7);
   tft.fillRect(100, 80, 208, 74, TFT_BLACK);
   tft.fillRect(16, 166, 288, 102, TFT_BLACK);
   drawTextWithSmoothFont(FONT_VLW_UI_14,
@@ -2589,7 +2640,10 @@ void renderMenuWifiOverview(bool redrawStatic) {
   memset(masked, '-', maskedLen);
   masked[maskedLen] = '\0';
   drawTextWithSmoothFont(FONT_VLW_UI_16, String(maskedLen > 0 ? masked : "(puste)"), 106, 112, TL_DATUM, TFT_WHITE);
-  drawMenuButton(MENU_WIFI_MODE_TOGGLE, g_menuDraft.wifiUseDhcp ? "DHCP" : "Statyczne", COLOR_KIELCE, true, g_menuWifiPressedCode == 4);
+  const char *modeLabel = g_menuDraft.wifiUseDhcp
+    ? (g_wifiFallbackDhcp ? "DHCP awaryjne" : "DHCP")
+    : "Statyczne";
+  drawMenuButton(MENU_WIFI_MODE_TOGGLE, modeLabel, COLOR_KIELCE, true, g_menuWifiPressedCode == 4);
   drawMenuIpLine("IP", g_menuDraft.localIp, 172);
   drawMenuIpLine("Maska", g_menuDraft.subnet, 198);
   drawMenuIpLine("Brama", g_menuDraft.gateway, 224);
@@ -2605,19 +2659,31 @@ void renderMenuWifiNetworks(bool redrawStatic) {
     drawTextWithSmoothFont(FONT_VLW_UI_14, String("Wybierz SSID z listy"), 18, 52, TL_DATUM, TFT_DARKGREY);
   }
   char key[112];
-  snprintf(key, sizeof(key), "%u|%s|%d|%d|%s",
+  snprintf(key, sizeof(key), "%u|%s|%d|%d|%d|%s",
            (unsigned)g_menuWifiScanCount,
            g_menuDraft.wifiSsid,
            (int)g_menuWifiPressedCode,
+           (int)g_menuWifiScanRequested,
            (int)g_menuWifiScanInProgress,
            g_menuWifiStatusText);
   if (!redrawStatic && strcmp(key, g_lastMenuWifiKey) == 0) {
     return;
   }
   tft.fillRect(226, 8, 84, 30, TFT_BLACK);
-  drawMenuButton(MENU_WIFI_NETWORK_RESCAN_BUTTON, "Skanuj", COLOR_MENU, false, g_menuWifiPressedCode == 5);
+  const bool scanActive = g_menuWifiScanRequested || g_menuWifiScanInProgress;
+  drawMenuButton(MENU_WIFI_NETWORK_RESCAN_BUTTON,
+                 scanActive ? "Skanowanie" : "Odśwież",
+                 COLOR_MENU,
+                 scanActive,
+                 g_menuWifiPressedCode == 5);
   tft.fillRect(12, 68, 296, 332, TFT_BLACK);
-  drawTextWithSmoothFont(FONT_VLW_UI_14, String(g_menuWifiStatusText[0] != '\0' ? g_menuWifiStatusText : "Gotowe"), 18, 74, TL_DATUM, g_menuWifiScanInProgress ? TFT_YELLOW : TFT_DARKGREY);
+  drawTextWithSmoothFont(FONT_VLW_UI_14,
+                         String(scanActive ? "Szukam sieci..." :
+                                (g_menuWifiStatusText[0] != '\0' ? g_menuWifiStatusText : "Gotowe")),
+                         18,
+                         74,
+                         TL_DATUM,
+                         scanActive ? TFT_YELLOW : TFT_DARKGREY);
   for (uint8_t i = 0; i < g_menuWifiScanCount; i++) {
     RectangleDef row = {16, (uint16_t)(98 + i * 38), 288, 32};
     const bool active = strcmp(g_menuDraft.wifiSsid, g_menuWifiScan[i].ssid) == 0;
@@ -2635,7 +2701,7 @@ void renderMenuWifiNetworks(bool redrawStatic) {
   }
   if (g_menuWifiScanCount == 0) {
     drawTextWithSmoothFont(FONT_VLW_UI_18,
-                           String(g_menuWifiScanInProgress ? "Skanowanie..." : "Brak wyników. Kliknij Skanuj."),
+                           String(scanActive ? "Skanowanie..." : "Brak wyników. Naciśnij Odśwież."),
                            centerWidth, 146, TC_DATUM, TFT_DARKGREY);
   }
   strncpy(g_lastMenuWifiKey, key, sizeof(g_lastMenuWifiKey) - 1);
@@ -2732,6 +2798,8 @@ int16_t getMenuWifiPressedCodeAt(uint16_t x, uint16_t y) {
     if (pointInRect(x, y, MENU_WIFI_HOME_PASSWORD_BUTTON)) return 2;
     if (pointInRect(x, y, MENU_WIFI_HOME_IP_BUTTON)) return 3;
     if (pointInRect(x, y, MENU_WIFI_MODE_TOGGLE)) return 4;
+    if (pointInRect(x, y, MENU_WIFI_HOME_SAVE_BUTTON)) return 6;
+    if (pointInRect(x, y, MENU_WIFI_HOME_CANCEL_BUTTON)) return 7;
     return 0;
   }
   if (g_menuWifiScreen == MENU_WIFI_NETWORKS) {
@@ -2821,20 +2889,6 @@ void handleMenuPressedTargetRelease(int16_t target) {
 
   if (target == 1) {
     if (g_menuScreen == MENU_HOME) {
-      if (doesMenuDraftDifferFromRuntimeConfig()) {
-        const MenuWifiApplyResult applyResult = applyMenuWifiDraftToRuntime();
-        if (applyResult != MENU_WIFI_APPLY_OK) {
-          setMenuWifiStatus(getMenuWifiApplyErrorText(applyResult));
-          g_menuWifiApplyFailed = true;
-          g_menuScreen = MENU_WIFI;
-          g_menuWifiScreen = MENU_WIFI_HOME;
-          resetTouchInteractionState();
-          invalidateMenuFull();
-          updateRescueMenu(false);
-          return;
-        }
-      }
-      g_menuWifiApplyFailed = false;
       navigateToPage(PAGE_MAIN, -1);
     } else if (g_menuScreen == MENU_WIFI && g_menuWifiScreen != MENU_WIFI_HOME) {
       g_menuWifiScreen = MENU_WIFI_HOME;
@@ -2842,8 +2896,9 @@ void handleMenuPressedTargetRelease(int16_t target) {
       invalidateMenuFull();
       updateRescueMenu(false);
     } else {
-      if (g_menuScreen == MENU_WIFI && g_menuWifiApplyFailed) {
-        initMenuDraftState();
+      if (g_menuScreen == MENU_WIFI) {
+        reloadMenuWifiDraftFromActiveConfig();
+        setMenuWifiStatus("");
         g_menuWifiApplyFailed = false;
       }
       g_menuScreen = MENU_HOME;
@@ -2862,6 +2917,8 @@ void handleMenuPressedTargetRelease(int16_t target) {
 
   if (g_menuScreen == MENU_HOME) {
     if (target == 10) {
+      reloadMenuWifiDraftFromActiveConfig();
+      setMenuWifiStatus("");
       g_menuScreen = MENU_WIFI;
       g_menuWifiScreen = MENU_WIFI_HOME;
     } else if (target == 11) {
@@ -3003,12 +3060,40 @@ void handleMenuWifiPressedRelease() {
       g_menuDraft.wifiUseDhcp = !g_menuDraft.wifiUseDhcp;
       invalidateMenuScreen(MENU_WIFI, false, true);
       updateRescueMenu(false);
+    } else if (code == 6) {
+      setMenuWifiStatus(u8"Łączenie...");
+      invalidateMenuScreen(MENU_WIFI, false, true);
+      updateRescueMenu(false);
+
+      const MenuWifiApplyResult applyResult = applyMenuWifiDraftToRuntime();
+      if (applyResult == MENU_WIFI_APPLY_OK) {
+        g_menuWifiApplyFailed = false;
+        setMenuWifiStatus("");
+        g_menuScreen = MENU_HOME;
+      } else {
+        g_menuWifiApplyFailed = true;
+        setMenuWifiStatus(getMenuWifiApplyErrorText(applyResult));
+      }
+      resetTouchInteractionState();
+      invalidateMenuFull();
+      updateRescueMenu(false);
+    } else if (code == 7) {
+      reloadMenuWifiDraftFromActiveConfig();
+      setMenuWifiStatus("");
+      g_menuWifiApplyFailed = false;
+      g_menuScreen = MENU_HOME;
+      resetTouchInteractionState();
+      invalidateMenuFull();
+      updateRescueMenu(false);
     }
     return;
   }
 
   if (g_menuWifiScreen == MENU_WIFI_NETWORKS) {
     if (code == 5) {
+      if (g_menuWifiScanRequested || g_menuWifiScanInProgress) {
+        return;
+      }
       requestMenuWifiScan(true);
       invalidateMenuScreen(MENU_WIFI, false, true);
       updateRescueMenu(false);
@@ -4310,6 +4395,21 @@ void serviceAmbientAndWake(uint32_t nowMs) {
 
 void serviceNetworkJobs(uint32_t nowMs) {
   static const uint32_t NETWORK_JOB_SLOT_MS = 750U;
+
+  // Zapytania HTTP są synchroniczne. W menu mają ustąpić obsłudze dotyku,
+  // dlatego pobieranie danych wznawiamy dopiero po powrocie do ekranów danych.
+  if (g_currentPage == PAGE_MENU || g_navOverlayVisible) {
+    g_nextNetworkJobSlotMs = nowMs + NETWORK_JOB_SLOT_MS;
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    g_networkReady = false;
+  }
+  if (!g_networkReady) {
+    g_nextNetworkJobSlotMs = nowMs + NETWORK_JOB_SLOT_MS;
+    return;
+  }
 
   if (nowMs >= g_nextNetworkJobSlotMs) {
     switch (g_nextNetworkJobIndex) {

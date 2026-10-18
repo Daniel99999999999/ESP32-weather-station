@@ -21,10 +21,10 @@ const WiFiProfile WIFI_PROFILES[] = {
     WIFI_PROFILE_2_SSID,
     WIFI_PROFILE_2_PASSWORD,
     true,
-    IPAddress(192, 168, 0, 200),
-    IPAddress(192, 168, 0, 1),
+    IPAddress(192, 168, 1, 200),
+    IPAddress(192, 168, 1, 1),
     IPAddress(255, 255, 255, 0),
-    IPAddress(80, 69, 100, 174)
+    IPAddress(192, 168, 1, 1)
   }
 };
 

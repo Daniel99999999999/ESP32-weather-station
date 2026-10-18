@@ -74,6 +74,17 @@ static bool waitForWiFiConnect(uint32_t timeoutMs) {
   return false;
 }
 
+// Sam status WL_CONNECTED potwierdza tylko połączenie z AP. Test DNS wykrywa
+// m.in. statyczny adres i bramę należące do nieaktualnej podsieci.
+static bool hasWorkingNetworkRoute() {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  IPAddress probeIp;
+  return WiFi.hostByName("api.openweathermap.org", probeIp) == 1;
+}
+
 static bool connectUsingConfig(const char* ssid,
                                const char* password,
                                bool useStaticIp,
@@ -105,7 +116,7 @@ static bool connectUsingConfig(const char* ssid,
     WiFi.begin(ssid, password);
     connected_static = waitForWiFiConnect(WIFI_CONNECT_TIMEOUT_MS);
 
-    if (connected_static) {
+    if (connected_static && hasWorkingNetworkRoute()) {
       g_wifiUsingStaticIp = true;
       g_wifiFallbackDhcp = false;
       g_wifiProfileIndex = profileIndex;
@@ -114,7 +125,11 @@ static bool connectUsingConfig(const char* ssid,
     }
 
 #if WIFI_ENABLE_DHCP_FALLBACK
-    log_w("[WIFI] static connect timeout, fallback DHCP");
+    if (connected_static) {
+      log_w("[WIFI] static IP has no working route/DNS, fallback DHCP");
+    } else {
+      log_w("[WIFI] static connect timeout, fallback DHCP");
+    }
 
     WiFi.disconnect(true, true);
     delay(300);

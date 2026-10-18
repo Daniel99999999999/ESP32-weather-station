@@ -12,6 +12,9 @@
 // Forecast jest przechowywany per miasto, tak aby ekran i wykres mogły
 // korzystać z ostatnich poprawnych danych bez czekania na świeży fetch po przełączeniu.
 static OpenWeatherMapForecastData s_forecasts[CITY_COUNT][NUMBER_OF_FORECASTS] = {};
+// Bufor pobierania nie może leżeć na stosie loopTask: 40 rekordów zawiera wiele
+// obiektów String, a razem z DNS/HTTP przekraczało to dostępny stos pętli ESP32.
+static OpenWeatherMapForecastData s_pendingForecasts[NUMBER_OF_FORECASTS] = {};
 static DataFetchState s_state[CITY_COUNT] = {};
 static uint8_t s_selectedCityIndex = 0;
 static uint8_t s_roundRobinCityIndex = 0;
@@ -254,11 +257,10 @@ void forecastServiceUpdate(uint32_t nowMs) {
   s_roundRobinCityIndex = (uint8_t)((city + 1U) % CITY_COUNT);
   s_state[city] = FETCH_RUNNING;
 
-  OpenWeatherMapForecastData nextForecasts[NUMBER_OF_FORECASTS] = {};
   uint8_t nextCount = 0;
-  if (fetchForecast(nextForecasts, nextCount, city)) {
+  if (fetchForecast(s_pendingForecasts, nextCount, city)) {
     for (uint8_t i = 0; i < NUMBER_OF_FORECASTS; i++) {
-      s_forecasts[city][i] = nextForecasts[i];
+      s_forecasts[city][i] = s_pendingForecasts[i];
     }
     s_count[city] = nextCount;
     s_hasData[city] = true;

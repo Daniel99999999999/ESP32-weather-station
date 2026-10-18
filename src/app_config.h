@@ -26,8 +26,8 @@
 
 // --- WiFi Settings ---
 #define WIFI_CONNECT_TIMEOUT_MS        3500UL
-#define WIFI_DHCP_FALLBACK_TIMEOUT_MS  2500UL
-#define WIFI_ENABLE_DHCP_FALLBACK      0
+#define WIFI_DHCP_FALLBACK_TIMEOUT_MS  5000UL
+#define WIFI_ENABLE_DHCP_FALLBACK      1
 #define WIFI_RETRY_DELAY_MS            500UL
 
 // --- Forecast ---

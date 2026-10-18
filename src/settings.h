@@ -90,4 +90,4 @@ extern const String WEEKDAYS_ABBR[7];
 #define SYSTEM_TIMESTAMP_FORMAT "%Y-%m-%d %H:%M:%S"
 
 #define APP_NAME "ESP32 Stacja Pogodowa"
-#define VERSION "2.1.0"
+#define VERSION "2.1.1"
