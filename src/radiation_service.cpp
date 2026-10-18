@@ -8,6 +8,7 @@
 #include "settings.h"
 #include "app_config.h"
 #include "ambient.h"
+#include "current_weather_service.h"
 
 // Snapshoty źródeł są utrzymywane poza tym modułem, ale tutaj składane są
 // w pojedynczy wynik logiczny używany przez UI i warstwę joba.
@@ -16,11 +17,27 @@ extern String g_radDoseDisplay[CITY_COUNT];
 extern String g_radDateEnd[CITY_COUNT];
 
 
-// Identyfikatory endpointu PAA dla stacji Kielce.
-static const char *PAA_KIELCE_STATION_ID = "158a3029-8d37-45d5-ae16-7793cb2afc8c";
-static const char *PAA_TARNOWITZ_STATION_ID = "a4d1366c-b78c-4d14-b8f7-03aed4e509a1";
 static const char *PAA_LAYER_ID = "15d20873-f8a7-8899-5d69-960cc9ebbbb6";
 static const char *PAA_TABLE_ID = "f5af6ec4-d759-3163-344e-cbf147d28e28";
+
+enum RadiationSource {
+  RAD_NONE,
+  RAD_PAA,
+  RAD_BFS
+};
+
+struct RadiationCityConfig {
+  RadiationSource source;
+  const char *stationSelector;
+};
+
+// Konfiguracja stacji jest jedynym miejscem zależnym od konkretnego miasta.
+// PAA używa UUID stacji, a BfS jednoznacznego pola id z endpointu WFS.
+static const RadiationCityConfig RADIATION_CITY_CONFIG[CITY_COUNT] = {
+  {RAD_PAA, "158a3029-8d37-45d5-ae16-7793cb2afc8c"},
+  {RAD_BFS, "DEZ3120"},
+  {RAD_PAA, "a4d1366c-b78c-4d14-b8f7-03aed4e509a1"}
+};
 
 
 int32_t g_prevDose = -1;
@@ -179,11 +196,15 @@ static bool parseLastJsonFloatField(const String &json, const char *token, float
   return true;
 }
 
-// Pobiera PAA dla Kielc, zapisuje snapshot tekstowy i diagnostykę błędu.
-static void updatePaaDoseForStation(const char *stationId, uint8_t cityIndex, const char *label) {
-  if (cityIndex >= CITY_COUNT) {
+// Pobiera PAA dla stacji skonfigurowanej dla wskazanego miasta.
+static void updatePaaDose(uint8_t cityIndex) {
+  if (cityIndex >= CITY_COUNT ||
+      RADIATION_CITY_CONFIG[cityIndex].source != RAD_PAA ||
+      RADIATION_CITY_CONFIG[cityIndex].stationSelector == nullptr) {
     return;
   }
+
+  const char *stationId = RADIATION_CITY_CONFIG[cityIndex].stationSelector;
 
   g_radDoseDisplay[cityIndex] = "n/a";
   g_radDateEnd[cityIndex] = "";
@@ -285,21 +306,22 @@ static void updatePaaDoseForStation(const char *stationId, uint8_t cityIndex, co
     }
   }
 
-  FW_LOG_I("PAA %s = %s, end=%s", label, g_radDoseDisplay[cityIndex].c_str(), g_radDateEnd[cityIndex].c_str());
+  FW_LOG_I("PAA %s = %s, end=%s",
+           currentWeatherServiceGetCityNameForCity(cityIndex),
+           g_radDoseDisplay[cityIndex].c_str(),
+           g_radDateEnd[cityIndex].c_str());
 }
 
-void updatePaaDoseForKielce() {
-  updatePaaDoseForStation(PAA_KIELCE_STATION_ID, 0, "Kielce");
-}
+// Pobiera BfS dla stacji skonfigurowanej dla wskazanego miasta.
+static void updateBfsDose(uint8_t cityIndex) {
+  if (cityIndex >= CITY_COUNT ||
+      RADIATION_CITY_CONFIG[cityIndex].source != RAD_BFS ||
+      RADIATION_CITY_CONFIG[cityIndex].stationSelector == nullptr) {
+    return;
+  }
 
-void updatePaaDoseForTarnowitz() {
-  updatePaaDoseForStation(PAA_TARNOWITZ_STATION_ID, 2, "Tarnowitz");
-}
-
-// Pobiera BfS dla Dauchingen / St. Georgen, zapisuje snapshot tekstowy i diagnostykę.
-void updateBfsDoseForDauchingen() {
-  g_radDoseDisplay[1] = "n/a";
-  g_radDateEnd[1] = "";
+  g_radDoseDisplay[cityIndex] = "n/a";
+  g_radDateEnd[cityIndex] = "";
   g_radiationLastError[0] = '\0';
   String ts;
 
@@ -313,8 +335,6 @@ void updateBfsDoseForDauchingen() {
 
   HTTPClient http;
 
-  // Profesjonalnie: filtrujemy po stronie serwera
-  // Najpierw po PLZ. To powinno ograniczyć payload do właściwej stacji/stacji.
   String url =
     "https://www.imis.bfs.de/ogc/opendata/ows"
     "?service=WFS"
@@ -322,8 +342,10 @@ void updateBfsDoseForDauchingen() {
     "&request=GetFeature"
     "&typeName=opendata:odlinfo_odl_1h_latest"
     "&outputFormat=application/json"
-    "&propertyName=plz,name,value,unit,start_measure,end_measure"
-    "&cql_filter=plz%3D%2778112%27";
+    "&propertyName=id,kenn,plz,value,unit,start_measure,end_measure"
+    "&cql_filter=id%3D%27";
+  url += RADIATION_CITY_CONFIG[cityIndex].stationSelector;
+  url += "%27";
 
   if (!http.begin(client, url)) {
     log_e("BfS begin failed");
@@ -359,20 +381,20 @@ void updateBfsDoseForDauchingen() {
   }
 //fixme: mioejsce?
 
-if (parseLastJsonStringField(payload, "\"end_measure\":\"", ts)) {//timestamp
-  g_radDateEnd[1] = ts;
-} else {
-  g_radDateEnd[1] = "";
-  snprintf(g_radiationLastError, sizeof(g_radiationLastError), "BfS no end len=%u", payload.length());
-  return;
-}
+  if (parseLastJsonStringField(payload, "\"end_measure\":\"", ts)) {
+    g_radDateEnd[cityIndex] = ts;
+  } else {
+    g_radDateEnd[cityIndex] = "";
+    snprintf(g_radiationLastError, sizeof(g_radiationLastError), "BfS no end len=%u", payload.length());
+    return;
+  }
 
   char buf[24];
   snprintf(buf, sizeof(buf), "%.3f µSv/h", value);
-  g_radDoseDisplay[1] = String(buf);
+  g_radDoseDisplay[cityIndex] = String(buf);
 
   const time_t now = time(nullptr);
-  const time_t measuredAt = parseIso8601ToEpoch(g_radDateEnd[1]);
+  const time_t measuredAt = parseIso8601ToEpoch(g_radDateEnd[cityIndex]);
   if (now > 0 && measuredAt > 0) {
     const long ageSec = (long)difftime(now, measuredAt);
     if (ageSec < 0) {
@@ -382,23 +404,33 @@ if (parseLastJsonStringField(payload, "\"end_measure\":\"", ts)) {//timestamp
     }
   }
 
-  FW_LOG_I("BfS St. Georgen = %s", g_radDoseDisplay[1].c_str());
+  FW_LOG_I("BfS %s = %s",
+           currentWeatherServiceGetCityNameForCity(cityIndex),
+           g_radDoseDisplay[cityIndex].c_str());
 }
 
 
 // Aktualizuje radiation dla miasta, a potem wyznacza wspólny wynik do UI.
 void updateRadiationForCityIndex(uint8_t cityIndex) {
-  g_radActiveCityIndex = cityIndex;
+  if (cityIndex >= CITY_COUNT) {
+    return;
+  }
 
-  if (cityIndex == 0) {
-    FW_LOG_I("[NET] RAD start Kielce");
-    updatePaaDoseForKielce();
-  } else if (cityIndex == 1) {
-    FW_LOG_I("[NET] RAD start Dauchingen");
-    updateBfsDoseForDauchingen();
-  } else if (cityIndex == 2) {
-    FW_LOG_I("[NET] RAD start Tarnowitz");
-    updatePaaDoseForTarnowitz();
+  g_radActiveCityIndex = cityIndex;
+  FW_LOG_I("[NET] RAD start %s", currentWeatherServiceGetCityNameForCity(cityIndex));
+
+  switch (RADIATION_CITY_CONFIG[cityIndex].source) {
+    case RAD_PAA:
+      updatePaaDose(cityIndex);
+      break;
+    case RAD_BFS:
+      updateBfsDose(cityIndex);
+      break;
+    default:
+      g_radDoseDisplay[cityIndex] = "n/a";
+      g_radDateEnd[cityIndex] = "";
+      snprintf(g_radiationLastError, sizeof(g_radiationLastError), "RAD no station");
+      break;
   }
 
   selectRadiationSource();
@@ -412,12 +444,6 @@ void updateRadiationForCityIndex(uint8_t cityIndex) {
              g_radDoseDisplay[cityIndex].c_str());
   }
 }
-
-enum RadiationSource {
-  RAD_NONE,
-  RAD_PAA,
-  RAD_BFS
-};
 
 RadiationSource g_radSource = RAD_NONE;
 int32_t g_radDose_x1000 = -1; // µSv/h * 1000
@@ -462,43 +488,49 @@ static uint16_t radiationColorFromDoseAndFreshness(int32_t dose_x1000, bool fres
 
 
 uint16_t getPaaColor(void) {
-  const uint8_t cityIndex = (g_radActiveCityIndex == 2) ? 2 : 0;
-  bool fresh = isPaaFresh(cityIndex);
-  int32_t dose = parseDoseToInt(g_radDoseDisplay[cityIndex]);
+  if (g_radActiveCityIndex >= CITY_COUNT ||
+      RADIATION_CITY_CONFIG[g_radActiveCityIndex].source != RAD_PAA) {
+    return TFT_DARKGREY;
+  }
+  const bool fresh = isPaaFresh(g_radActiveCityIndex);
+  const int32_t dose = parseDoseToInt(g_radDoseDisplay[g_radActiveCityIndex]);
   return radiationColorFromDoseAndFreshness(dose, fresh, false);
 }
 
 uint16_t getBfsColor(void) {
-  bool fresh = isBfsFresh(1);
-  int32_t dose = parseDoseToInt(g_radDoseDisplay[1]);
+  if (g_radActiveCityIndex >= CITY_COUNT ||
+      RADIATION_CITY_CONFIG[g_radActiveCityIndex].source != RAD_BFS) {
+    return TFT_DARKGREY;
+  }
+  const bool fresh = isBfsFresh(g_radActiveCityIndex);
+  const int32_t dose = parseDoseToInt(g_radDoseDisplay[g_radActiveCityIndex]);
   return radiationColorFromDoseAndFreshness(dose, fresh, true);
 }
 
-
-
-// Wybiera najlepsze świeże źródło: preferowane PAA, fallback BfS.
+// Wybiera źródło skonfigurowane dla aktywnego miasta i ocenia świeżość próbki.
 static void selectRadiationSource(void) {
-  bool paaFresh = (g_radActiveCityIndex == 0 || g_radActiveCityIndex == 2) &&
-                  isPaaFresh(g_radActiveCityIndex);
-  bool bfsFresh = (g_radActiveCityIndex == 1) && isBfsFresh(1);
-
-  static RadiationSource lastSource = RAD_NONE;
-
-if (g_radSource != lastSource) {
-  g_prevDose = -1; // reset trend
-  lastSource = g_radSource;
-}
-
-  if (g_radActiveCityIndex == 0 || g_radActiveCityIndex == 2) {
-    g_radSource = RAD_PAA;
-    g_radDose_x1000 = paaFresh ? parseDoseToInt(g_radDoseDisplay[g_radActiveCityIndex]) : -1;
-  } else if (g_radActiveCityIndex == 1) {
-    g_radSource = RAD_BFS;
-    g_radDose_x1000 = bfsFresh ? parseDoseToInt(g_radDoseDisplay[1]) : -1;
-  } else {
+  if (g_radActiveCityIndex >= CITY_COUNT) {
     g_radSource = RAD_NONE;
     g_radDose_x1000 = -1;
+    return;
   }
+
+  const RadiationSource nextSource = RADIATION_CITY_CONFIG[g_radActiveCityIndex].source;
+  if (nextSource != g_radSource) {
+    g_prevDose = -1;
+  }
+
+  g_radSource = nextSource;
+  bool fresh = false;
+  if (g_radSource == RAD_PAA) {
+    fresh = isPaaFresh(g_radActiveCityIndex);
+  } else if (g_radSource == RAD_BFS) {
+    fresh = isBfsFresh(g_radActiveCityIndex);
+  }
+
+  g_radDose_x1000 = fresh
+    ? parseDoseToInt(g_radDoseDisplay[g_radActiveCityIndex])
+    : -1;
 }
 
 // Trend liczony jest względem poprzedniej dawki tego samego źródła.

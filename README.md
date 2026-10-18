@@ -7,7 +7,7 @@ Stacja pogodowa dla ESP32 z ekranem dotykowym 320x480 opartym na kontrolerze ST7
 - bieżąca pogoda i prognoza OpenWeatherMap,
 - AQI, PM2.5 i PM10 z WAQI,
 - promieniowanie z PAA dla Polski i BfS dla Niemiec,
-- wykres 24 próbek temperatury dla Kielc, Dauchingen i Tarnowitz,
+- wykres 24 próbek temperatury dla Kielc, Rauen i Tarnowitz,
 - dotykowe menu ustawień,
 - konfiguracja Wi-Fi, jasności, kolorów miast i widoczności sekcji,
 - automatyczna regulacja jasności oraz tryb nocny,

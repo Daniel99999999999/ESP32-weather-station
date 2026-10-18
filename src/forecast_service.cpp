@@ -6,6 +6,7 @@
 #include <JsonStreamingParser.h>
 
 #include "app_config.h"
+#include "current_weather_service.h"
 #include "settings.h"
 
 // Forecast jest przechowywany per miasto, tak aby ekran i wykres mogły
@@ -156,8 +157,8 @@ static bool fetchForecast(OpenWeatherMapForecastData *outData, uint8_t &outCount
   }
 
   const String url =
-    String("http://api.openweathermap.org/data/2.5/forecast?id=") +
-    CITY_OWM_IDS[cityIndex] +
+    String("http://api.openweathermap.org/data/2.5/forecast?") +
+    CITY_OWM_LOCATIONS[cityIndex] +
     "&appid=" + OPEN_WEATHER_MAP_API_KEY +
     "&units=" + (IS_METRIC ? "metric" : "imperial") +
     "&lang=" + OPEN_WEATHER_MAP_LANGUAGE;
@@ -264,7 +265,9 @@ void forecastServiceUpdate(uint32_t nowMs) {
     s_lastSuccessMs[city] = nowMs;
     s_state[city] = FETCH_OK;
     s_nextAttemptMs[city] = nowMs + FORECAST_REFRESH_MS;
-    FW_LOG_I("Forecast updated for %s count=%u", CITY_NAMES[city], s_count[city]);
+    FW_LOG_I("Forecast updated for %s count=%u",
+             currentWeatherServiceGetCityNameForCity(city),
+             s_count[city]);
     return;
   }
 
@@ -321,7 +324,7 @@ uint8_t forecastServiceGetCityIndex(void) {
 }
 
 const char* forecastServiceGetCityName(void) {
-  return (s_selectedCityIndex < CITY_COUNT) ? CITY_NAMES[s_selectedCityIndex] : "n/a";
+  return currentWeatherServiceGetCityNameForCity(s_selectedCityIndex);
 }
 
 bool forecastServiceHasData(void) {

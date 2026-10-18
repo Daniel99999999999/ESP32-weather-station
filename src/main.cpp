@@ -70,25 +70,20 @@ const RectangleDef MAIN_NIGHT_TOGGLE_BUTTON = {6, 10, 42, 18};
 const uint32_t NAV_OVERLAY_LONG_PRESS_MS = 650U;
 const uint16_t NAV_OVERLAY_MOVE_TOLERANCE = 18U;
 const uint16_t COLOR_KIELCE = TFT_CYAN;
-const uint16_t COLOR_DAUCHINGEN = TFT_YELLOW;
+const uint16_t COLOR_RAUEN = TFT_YELLOW;
 const uint16_t COLOR_TARNOWITZ = TFT_MAGENTA;
 const uint16_t COLOR_GRAPH = TFT_GREEN;
 const uint16_t COLOR_DEBUG = TFT_ORANGE;
 const uint16_t COLOR_MENU = 0xd7e0;
 constexpr uint8_t DEBUG_LINE_COUNT = 16;
-uint16_t g_cityUiColors[CITY_COUNT] = {COLOR_KIELCE, COLOR_DAUCHINGEN, COLOR_TARNOWITZ};
+uint16_t g_cityUiColors[CITY_COUNT] = {COLOR_KIELCE, COLOR_RAUEN, COLOR_TARNOWITZ};
 
 uint16_t getCityUiColor(uint8_t cityIndex) {
   return (cityIndex < CITY_COUNT) ? g_cityUiColors[cityIndex] : TFT_WHITE;
 }
 
 const char* getCityUiName(uint8_t cityIndex) {
-  switch (cityIndex) {
-    case 0: return "Kielce";
-    case 1: return "Dauchingen";
-    case 2: return "Tarnowitz";
-    default: return "?";
-  }
+  return currentWeatherServiceGetCityNameForCity(cityIndex);
 }
 
 enum MenuScreen : uint8_t {
@@ -556,7 +551,9 @@ void initRuntimeState() {
   for (uint8_t i = 0; i < CITY_COUNT; i++) {
     g_weatherCache[i] = {};
     g_weatherCache[i].cityIndex = i;
-    strncpy(g_weatherCache[i].cityName, CITY_NAMES[i], sizeof(g_weatherCache[i].cityName) - 1);
+    strncpy(g_weatherCache[i].cityName,
+            currentWeatherServiceGetCityNameForCity(i),
+            sizeof(g_weatherCache[i].cityName) - 1);
     g_weatherCache[i].fetchState = FETCH_NONE;
     g_forecastCache[i] = {};
     g_forecastCache[i].cityIndex = i;
@@ -2919,7 +2916,7 @@ void handleMenuPressedTargetRelease(int16_t target) {
 
     if (target == 43) {
       g_cityUiColors[0] = COLOR_KIELCE;
-      g_cityUiColors[1] = COLOR_DAUCHINGEN;
+      g_cityUiColors[1] = COLOR_RAUEN;
       g_cityUiColors[2] = COLOR_TARNOWITZ;
       for (uint8_t city = 0; city < CITY_COUNT; city++) {
         g_menuDraft.cityColors[city] = g_cityUiColors[city];
@@ -3219,14 +3216,14 @@ void renderNavOverlay() {
 
   tft.drawRoundRect(12, 132, 296, 164, 10, 0x4228);
   const bool activeKielce = (g_currentPage == PAGE_MAIN && g_activeCityIndex == 0);
-  const bool activeDau = (g_currentPage == PAGE_MAIN && g_activeCityIndex == 1);
+  const bool activeRauen = (g_currentPage == PAGE_MAIN && g_activeCityIndex == 1);
   const bool activeTarnowitz = (g_currentPage == PAGE_MAIN && g_activeCityIndex == 2);
   const bool activeGraph = (g_currentPage == PAGE_STATS);
   const bool activeDebug = (g_currentPage == PAGE_DEBUG);
   const bool activeMenu = (g_currentPage == PAGE_MENU);
-  drawOverlayButton(NAV_KIELCE_BUTTON, "Kielce", getCityUiColor(0), activeKielce, g_overlayPressedButton == 0);
-  drawOverlayButton(NAV_DAU_BUTTON, "Dauchingen", getCityUiColor(1), activeDau, g_overlayPressedButton == 1);
-  drawOverlayButton(NAV_TARNOWITZ_BUTTON, "Tarnowitz", getCityUiColor(2), activeTarnowitz, g_overlayPressedButton == 2);
+  drawOverlayButton(NAV_KIELCE_BUTTON, getCityUiName(0), getCityUiColor(0), activeKielce, g_overlayPressedButton == 0);
+  drawOverlayButton(NAV_DAU_BUTTON, getCityUiName(1), getCityUiColor(1), activeRauen, g_overlayPressedButton == 1);
+  drawOverlayButton(NAV_TARNOWITZ_BUTTON, getCityUiName(2), getCityUiColor(2), activeTarnowitz, g_overlayPressedButton == 2);
   drawOverlayButton(NAV_GRAPH_BUTTON, "Wykres", COLOR_GRAPH, activeGraph, g_overlayPressedButton == 3);
   drawOverlayButton(NAV_DEBUG_BUTTON, "Debug", COLOR_DEBUG, activeDebug, g_overlayPressedButton == 4);
   drawOverlayButton(NAV_MENU_BUTTON, "Menu", COLOR_MENU, activeMenu, g_overlayPressedButton == 5);
@@ -3742,7 +3739,7 @@ void updateRescueStats(bool force) {
   }
 
   drawTextWithSmoothFont(FONT_VLW_UI_14, "Czas", centerWidth, graphBottomY + 34, TC_DATUM, TFT_DARKGREY);
-  drawTextWithSmoothFont(FONT_VLW_UI_14, "24 probki: co odsw. pogody, potem co 1h", centerWidth, graphBottomY + 50, TC_DATUM, TFT_DARKGREY);
+  drawTextWithSmoothFont(FONT_VLW_UI_14, u8"24 próbki: co odśw. pogody, potem co 1h", centerWidth, graphBottomY + 50, TC_DATUM, TFT_DARKGREY);
 
   const int16_t summaryTopY = 344;
   const int16_t summaryXs[CITY_COUNT] = {12, 114, 216};
@@ -3922,9 +3919,9 @@ void updateRescueMenu(bool force) {
       }
 
       tft.fillRect(0, 76, tft.width(), 364, TFT_BLACK);
-      drawMenuCheckbox(MENU_COLORS_CITY0_BOX, "Kielce", false, getCityUiColor(0));
-      drawMenuCheckbox(MENU_COLORS_CITY1_BOX, "Dauchingen", false, getCityUiColor(1));
-      drawMenuCheckbox(MENU_COLORS_CITY2_BOX, "Tarnowitz", false, getCityUiColor(2));
+      drawMenuCheckbox(MENU_COLORS_CITY0_BOX, getCityUiName(0), false, getCityUiColor(0));
+      drawMenuCheckbox(MENU_COLORS_CITY1_BOX, getCityUiName(1), false, getCityUiColor(1));
+      drawMenuCheckbox(MENU_COLORS_CITY2_BOX, getCityUiName(2), false, getCityUiColor(2));
       drawMenuCheckboxState(MENU_COLORS_CITY0_BOX, g_menuColorsSelectedCity == 0, getCityUiColor(0));
       drawMenuCheckboxState(MENU_COLORS_CITY1_BOX, g_menuColorsSelectedCity == 1, getCityUiColor(1));
       drawMenuCheckboxState(MENU_COLORS_CITY2_BOX, g_menuColorsSelectedCity == 2, getCityUiColor(2));
@@ -3955,7 +3952,7 @@ void updateRescueMenu(bool force) {
       const uint8_t values[3] = {g_menuDraft.rgbR, g_menuDraft.rgbG, g_menuDraft.rgbB};
       if (redrawStatic) {
         drawMenuHeader("RGB LED");
-        drawTextWithSmoothFont(FONT_VLW_UI_18, String("Zmiana koloru na zywo"), centerWidth, 56, TC_DATUM, TFT_DARKGREY);
+        drawTextWithSmoothFont(FONT_VLW_UI_18, String(u8"Zmiana koloru na żywo"), centerWidth, 56, TC_DATUM, TFT_DARKGREY);
         for (uint8_t i = 0; i < 3; i++) {
           const RectangleDef &slider = sliders[i];
           tft.drawRect(slider.x, slider.y, slider.width, slider.height, sliderColors[i]);

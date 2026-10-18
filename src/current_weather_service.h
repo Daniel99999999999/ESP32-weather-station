@@ -34,6 +34,9 @@ const OpenWeatherMapCurrentData* currentWeatherServiceGetDataForCity(uint8_t cit
 // Zwraca nazwę aktywnego miasta z serwera albo nazwę konfiguracyjną jako fallback.
 const char* currentWeatherServiceGetCityName(void);
 
+// Zwraca nazwę miasta z pola "name" JSON albo nazwę awaryjną.
+const char* currentWeatherServiceGetCityNameForCity(uint8_t cityIndex);
+
 // Zwraca indeks aktualnie wybranego miasta.
 uint8_t currentWeatherServiceGetCityIndex(void);
 

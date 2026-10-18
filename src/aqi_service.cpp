@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 
 #include "app_config.h"
+#include "current_weather_service.h"
 #include "settings.h"
 
 // Cache AQI jest trzymany per miasto, aby przełączanie ekranów nie wymagało
@@ -138,7 +139,7 @@ static bool fetchAqi(AqiServiceData &outData, uint8_t cityIndex) {
     return true;
   }
 
-  String cityName = CITY_NAMES[cityIndex];
+  String cityName = currentWeatherServiceGetCityNameForCity(cityIndex);
   cityName.replace(" ", "%20");
   if (fetchAqiFromPath(outData, cityName)) {
     return true;
@@ -211,7 +212,7 @@ void aqiServiceUpdate(uint32_t nowMs) {
     s_state[city] = FETCH_OK;
     s_nextAttemptMs[city] = nowMs + AQI_REFRESH_MS;
     FW_LOG_I("AQI updated for %s aqi=%d pm25=%d pm10=%d",
-          CITY_NAMES[city],
+          currentWeatherServiceGetCityNameForCity(city),
           s_data[city].aqi,
           s_data[city].pm25,
           s_data[city].pm10);
@@ -257,7 +258,7 @@ uint8_t aqiServiceGetCityIndex(void) {
 }
 
 const char* aqiServiceGetCityName(void) {
-  return (s_selectedCityIndex < CITY_COUNT) ? CITY_NAMES[s_selectedCityIndex] : "n/a";
+  return currentWeatherServiceGetCityNameForCity(s_selectedCityIndex);
 }
 
 uint32_t aqiServiceGetAgeSeconds(uint32_t nowMs) {

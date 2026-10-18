@@ -8,12 +8,6 @@
 
 // Pobiera radiation dla wskazanego miasta i aktualizuje wspólny stan źródła/statusu.
 void updateRadiationForCityIndex(uint8_t cityIndex);
-// Wymusza odczyt ze źródła PAA dla Kielc.
-void updatePaaDoseForKielce();
-// Wymusza odczyt ze źródła BfS dla Dauchingen.
-void updateBfsDoseForDauchingen();
-// Wymusza odczyt ze źródła PAA dla Tarnowitz.
-void updatePaaDoseForTarnowitz();
 // Zwraca aktualny status radiation używany przez UI.
 RadiationStatus getRadiationStatus(void);
 // Zwraca, czy aktywne źródło jest primary, backup czy brak danych.

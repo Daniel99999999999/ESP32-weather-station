@@ -219,7 +219,7 @@ Before generating all fonts, first generate only:
 Use the shared UI character set and visually verify this test string:
 
 ```text
-Słońce ŚR Kielce Dauchingen
+Słońce ŚR Kielce Rauen
 Odczuwalna 12.3°C
 RAD 0.063 µSv/h
 Poniedziałek Środa Czwartek

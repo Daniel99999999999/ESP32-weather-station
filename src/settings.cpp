@@ -37,9 +37,13 @@ bool IS_METRIC = true;
 
 const String OPEN_WEATHER_MAP_API_KEY = OPEN_WEATHER_MAP_API_KEY_VALUE;
 
-const char *CITY_NAMES[CITY_COUNT] = {"Kielce", "Dauchingen", "Tarnowitz"};
-const char *CITY_OWM_IDS[CITY_COUNT] = {"769250", "2938740", "3083440"};
-const char *AQI_STATION_IDS[CITY_COUNT] = {"A463567", "A105718", "A190096"};
+const char *CITY_FALLBACK_NAMES[CITY_COUNT] = {"Kielce", "Rauen", "Tarnowitz"};
+const char *CITY_OWM_LOCATIONS[CITY_COUNT] = {
+  "id=769250",
+  "id=6547646",
+  "id=3083440"
+};
+const char *AQI_STATION_IDS[CITY_COUNT] = {"A463567", "A52348", "A190096"};
 const String AQI_TOKEN = AQI_TOKEN_VALUE;
 
 const String OPEN_WEATHER_MAP_LANGUAGE = "pl";

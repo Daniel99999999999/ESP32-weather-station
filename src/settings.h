@@ -44,8 +44,10 @@ extern bool IS_METRIC;
 extern const String OPEN_WEATHER_MAP_API_KEY;
 
 #define CITY_COUNT 3
-extern const char *CITY_NAMES[CITY_COUNT];
-extern const char *CITY_OWM_IDS[CITY_COUNT];
+// Nazwy awaryjne używane przed pierwszym poprawnym odczytem OpenWeather.
+extern const char *CITY_FALLBACK_NAMES[CITY_COUNT];
+// Parametr lokalizacji OpenWeatherMap, np. "id=769250" albo "zip=15518,DE".
+extern const char *CITY_OWM_LOCATIONS[CITY_COUNT];
 extern const char *AQI_STATION_IDS[CITY_COUNT];
 extern const String AQI_TOKEN;
 
@@ -88,4 +90,4 @@ extern const String WEEKDAYS_ABBR[7];
 #define SYSTEM_TIMESTAMP_FORMAT "%Y-%m-%d %H:%M:%S"
 
 #define APP_NAME "ESP32 Stacja Pogodowa"
-#define VERSION "2.0"
+#define VERSION "2.1.0"

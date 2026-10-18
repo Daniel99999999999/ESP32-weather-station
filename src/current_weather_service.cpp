@@ -141,8 +141,8 @@ static bool fetchCurrentWeather(OpenWeatherMapCurrentData &outData, uint8_t city
   }
 
   const String url =
-    String("http://api.openweathermap.org/data/2.5/weather?id=") +
-    CITY_OWM_IDS[cityIndex] +
+    String("http://api.openweathermap.org/data/2.5/weather?") +
+    CITY_OWM_LOCATIONS[cityIndex] +
     "&appid=" + OPEN_WEATHER_MAP_API_KEY +
     "&units=" + (IS_METRIC ? "metric" : "imperial") +
     "&lang=" + OPEN_WEATHER_MAP_LANGUAGE;
@@ -166,7 +166,7 @@ static bool fetchCurrentWeather(OpenWeatherMapCurrentData &outData, uint8_t city
   http.end();
 
   clearCurrentWeather(outData);
-  outData.cityName = CITY_NAMES[cityIndex];
+  outData.cityName = CITY_FALLBACK_NAMES[cityIndex];
 
   uint32_t weatherId = 0;
   uint32_t humidity = 0;
@@ -212,7 +212,7 @@ static bool fetchCurrentWeather(OpenWeatherMapCurrentData &outData, uint8_t city
           hasTempMin ? "ok" : "missing",
           hasTempMax ? "ok" : "missing");
     clearCurrentWeather(outData);
-    outData.cityName = CITY_NAMES[cityIndex];
+    outData.cityName = CITY_FALLBACK_NAMES[cityIndex];
     return false;
   }
 
@@ -225,11 +225,11 @@ static bool fetchCurrentWeather(OpenWeatherMapCurrentData &outData, uint8_t city
   outData.observationTime = observationTime;
   outData.sunrise = sunrise;
   outData.sunset = sunset;
-  FW_LOG_I("Current weather JSON temperatures for %s: temp=%.2f min=%.2f max=%.2f",
-           CITY_NAMES[cityIndex], outData.temp, outData.tempMin, outData.tempMax);
   if (serverCityName.length() > 0) {
     outData.cityName = serverCityName;
   }
+  FW_LOG_I("Current weather JSON temperatures for %s: temp=%.2f min=%.2f max=%.2f",
+           outData.cityName.c_str(), outData.temp, outData.tempMin, outData.tempMax);
 
   return outData.observationTime > 0;
 }
@@ -347,12 +347,17 @@ const OpenWeatherMapCurrentData* currentWeatherServiceGetDataForCity(uint8_t cit
 }
 
 const char* currentWeatherServiceGetCityName(void) {
-  if (s_selectedCityIndex < CITY_COUNT &&
-      s_hasData[s_selectedCityIndex] &&
-      s_currentWeather[s_selectedCityIndex].cityName.length() > 0) {
-    return s_currentWeather[s_selectedCityIndex].cityName.c_str();
+  return currentWeatherServiceGetCityNameForCity(s_selectedCityIndex);
+}
+
+const char* currentWeatherServiceGetCityNameForCity(uint8_t cityIndex) {
+  if (cityIndex >= CITY_COUNT) {
+    return "n/a";
   }
-  return (s_selectedCityIndex < CITY_COUNT) ? CITY_NAMES[s_selectedCityIndex] : "n/a";
+  if (s_hasData[cityIndex] && s_currentWeather[cityIndex].cityName.length() > 0) {
+    return s_currentWeather[cityIndex].cityName.c_str();
+  }
+  return CITY_FALLBACK_NAMES[cityIndex];
 }
 
 uint8_t currentWeatherServiceGetCityIndex(void) {
